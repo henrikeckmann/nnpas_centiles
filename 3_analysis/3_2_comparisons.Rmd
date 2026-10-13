@@ -1,0 +1,492 @@
+---
+title: "3_4_comparisons"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+library(dplyr)
+library(ggcorrplot)
+# library(nnet)
+# library(boot)
+# library(parallel)
+library(ggplot2)
+library(irr)
+library(blandr)
+library(patchwork)
+library(cvms)
+source("2_wrangling/2_1_data_wrangling.R")
+```
+
+```{r}
+centiles_dataframes = list.files("centile_dataframes")
+
+centiles_dataframe = read_rds(paste0("centile_dataframes/", centiles_dataframes[1])) |> 
+  select(-starts_with("M14"))
+for (df in centiles_dataframes[-1]){
+  df = read_rds(paste0("centile_dataframes/", df))|> 
+  select(-starts_with("M14"))
+  centiles_dataframe = full_join(centiles_dataframe, df, by = colnames(df)[1:16]) 
+}
+  
+centiles_dataframe = centiles_dataframe |> 
+  mutate(
+    across(starts_with("centiles"), ~ replace_na(.x, 0)),
+    across(starts_with("z_scores"), ~ replace_na(.x, 0)),
+    centiles_ENMOa_AvAcc = centiles_ENMOa_AvAcc.x + centiles_ENMOa_AvAcc.y,
+    centiles_ENMO_AvAcc = centiles_ENMO_AvAcc.x + centiles_ENMO_AvAcc.y,
+    centiles_MAD_AvAcc = centiles_MAD_AvAcc.x + centiles_MAD_AvAcc.y,
+    centiles_LFENMO_AvAcc = centiles_LFENMO_AvAcc.x + centiles_LFENMO_AvAcc.y,
+    centiles_NeishabouriCount_vm_AvAcc = centiles_NeishabouriCount_vm_AvAcc.x + centiles_NeishabouriCount_vm_AvAcc.y,
+    centiles_ENMOa_IG = centiles_ENMOa_IG.x + centiles_ENMOa_IG.y,
+    centiles_ENMO_IG = centiles_ENMO_IG.x + centiles_ENMO_IG.y,
+    centiles_MAD_IG = centiles_MAD_IG.x + centiles_MAD_IG.y,
+    centiles_LFENMO_IG = centiles_LFENMO_IG.x + centiles_LFENMO_IG.y,
+    centiles_NeishabouriCount_vm_IG = centiles_NeishabouriCount_vm_IG.x + centiles_NeishabouriCount_vm_IG.y,
+    z_scores_ENMOa_AvAcc = z_scores_ENMOa_AvAcc.x + z_scores_ENMOa_AvAcc.y,
+    z_scores_ENMO_AvAcc = z_scores_ENMO_AvAcc.x + z_scores_ENMO_AvAcc.y,
+    z_scores_MAD_AvAcc = z_scores_MAD_AvAcc.x + z_scores_MAD_AvAcc.y,
+    z_scores_LFENMO_AvAcc = z_scores_LFENMO_AvAcc.x + z_scores_LFENMO_AvAcc.y,
+    z_scores_NeishabouriCount_vm_AvAcc = z_scores_NeishabouriCount_vm_AvAcc.x + z_scores_NeishabouriCount_vm_AvAcc.y,
+    z_scores_ENMOa_IG = z_scores_ENMOa_IG.x + z_scores_ENMOa_IG.y,
+    z_scores_ENMO_IG = z_scores_ENMO_IG.x + z_scores_ENMO_IG.y,
+    z_scores_MAD_IG = z_scores_MAD_IG.x + z_scores_MAD_IG.y,
+    z_scores_LFENMO_IG = z_scores_LFENMO_IG.x + z_scores_LFENMO_IG.y,
+    z_scores_NeishabouriCount_vm_IG = z_scores_NeishabouriCount_vm_IG.x + z_scores_NeishabouriCount_vm_IG.y
+  ) |> 
+  select(-c(contains(".x"), contains(".y"))) |> 
+  inner_join(all_df_participant)
+
+```
+
+
+```{r}
+
+# select vars
+data_AvAcc = centiles_dataframe |> 
+  select(contains("centiles") & contains("AvAcc"))
+
+centiles_cor_AvAcc = data_AvAcc |> 
+  cor(use = "pairwise.complete.obs", method = "spearman")
+
+data_AvAcc = data_AvAcc |> 
+  mutate(
+    across(contains("centiles"), ~ floor((.x / 20) + 1), .names = "quints_{col}")
+  ) |> 
+  rowwise() |> 
+  mutate(
+    means = mean(c_across(contains("centiles"))),
+    quints_means = round(mean(c_across(contains("quints"))),0),
+    quints_means_ENMOa = round(mean(c_across(contains("quints_c") & !contains("ENMOa"))),0),
+    quints_means_ENMO = round(mean(c_across(contains("quints_c") & !contains("ENMO"))),0),
+    quints_means_MAD = round(mean(c_across(contains("quints_c") & !contains("MAD"))),0),
+    quints_means_LFENMO = round(mean(c_across(contains("quints_c") & !contains("LFENMO"))),0),
+    quints_means_NeishabouriCount_vm = round(mean(c_across(contains("quints_c") & !contains("NeishabouriCount_vm"))),0),
+    ) |> 
+  ungroup() |> 
+  mutate(
+    across(contains("quints"), ~ if_else(.x > 5, 5, .x))
+  )
+
+corplot_AvAcc = ggcorrplot(
+  centiles_cor_AvAcc,
+  # method = "color",
+  ggtheme = theme_classic(),
+  title = "A",
+  # outline = TRUE,
+  # addgrid.col = "grey",
+  type = "lower",
+  show.diag = TRUE,
+  colors = c("firebrick3", "white", "royalblue4"),
+  lab = TRUE,
+  tl.cex = 12,
+  # tl.col = "black"
+) 
+
+corplot_AvAcc
+
+```
+
+
+
+```{r}
+
+# select vars
+data_IG = centiles_dataframe |> 
+  select(contains("centiles") & contains("IG"))
+
+centiles_cor_IG = data_IG |> 
+  cor(use = "pairwise.complete.obs", method = "spearman")
+
+data_IG = data_IG |> 
+  mutate(
+    across(contains("centiles"), ~ floor((.x / 20) + 1), .names = "quints_{col}")
+  ) |> 
+  rowwise() |> 
+  mutate(
+    quints_means = round(mean(c_across(contains("quints"))),0),
+    quints_means_ENMOa = round(mean(c_across(contains("quints_c") & !contains("ENMOa"))),0),
+    quints_means_ENMO = round(mean(c_across(contains("quints_c") & !contains("ENMO"))),0),
+    quints_means_MAD = round(mean(c_across(contains("quints_c") & !contains("MAD"))),0),
+    quints_means_LFENMO = round(mean(c_across(contains("quints_c") & !contains("LFENMO"))),0),
+    quints_means_NeishabouriCount_vm = round(mean(c_across(contains("quints_c") & !contains("NeishabouriCount_vm"))),0),
+    ) |> 
+  ungroup() |> 
+  mutate(
+    across(contains("quints"), ~ if_else(.x > 5, 5, .x))
+  )
+
+corplot_IG = ggcorrplot(
+  centiles_cor_IG,
+  # method = "color",
+  ggtheme = theme_classic(),
+  title = "B",
+  # outline = TRUE,
+  # addgrid.col = "grey",
+  type = "lower",
+  show.diag = TRUE,
+  colors = c("firebrick3", "white", "royalblue4"),
+  lab = TRUE,
+  tl.cex = 12,
+  # tl.col = "black"
+) 
+
+corplot_IG
+
+```
+
+```{r, fig.width=5, fig.height=8}
+
+comb_corplot = corplot_AvAcc / corplot_IG
+
+# ggsave(
+#   "plots/fig3.svg",
+#   plot = comb_corplot,
+#   width = 6,
+#   height = 9,
+#   units = "in",
+#   dpi = 300
+# )
+
+```
+
+
+#### Pairwise BA
+###### BA plot function
+```{r}
+
+ba_plot_func = function(ba_stats){
+  plot = ggplot() +
+    geom_hline(yintercept = 0) +
+    geom_hline(yintercept = ba_stats$bias, linetype = 2) + 
+    geom_hline(yintercept = ba_stats$upperLOA, linetype = 2) + 
+    geom_hline(yintercept = ba_stats$lowerLOA, linetype = 2) + 
+    geom_point(aes(!!ba_stats$means, !!ba_stats$differences), alpha = .15) +
+    geom_ribbon(
+      aes(
+      x = !!ba_stats$means,
+      ymin = !!ba_stats$upperLOA_lowerCI,
+      ymax = !!ba_stats$upperLOA_upperCI
+      ),
+      alpha = .15
+    ) +
+    geom_ribbon(
+      aes(
+      x = !!ba_stats$means,
+      ymin = !!ba_stats$lowerLOA_lowerCI,
+      ymax = !!ba_stats$lowerLOA_upperCI
+      ),
+      alpha = .15
+    ) +
+    geom_ribbon(
+      aes(
+      x = !!ba_stats$means,
+      ymin = !!ba_stats$biasLowerCI,
+      ymax = !!ba_stats$biasUpperCI
+      ),
+      alpha = .15
+    ) +
+    scale_y_continuous(
+      breaks = seq(-100, 100, 20),
+      limits = c(-105, 105)
+    ) +
+    ggtitle(substr(paste0(ESM_combn[1,i], "_", ESM_combn[2,i]), 1, 10)) +
+    xlab("Means") +
+    ylab("Differences") +
+    theme_classic()
+  return(plot)
+  }
+
+```
+
+```{r, fig.width=6, fig.height=9}
+
+plot_list_AvAcc = NULL
+stats_list_AvAcc = NULL
+ESM_combn = combn(c("ENMO", "MAD", "ENMOa", "LFENMO", "NeishabouriCount_vm"), 2)
+
+for (i in 1:10){
+  vec1 = data_AvAcc |> pull(
+    !!sym(paste0("centiles_", ESM_combn[1,i], "_AvAcc"))
+  )
+  vec2 = data_AvAcc |> pull(
+    !!sym(paste0("centiles_", ESM_combn[2,i], "_AvAcc"))
+  )
+  stats_list_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = blandr.statistics(vec1, vec2)
+  
+  plot_list_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = ba_plot_func(stats_list_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]])
+}
+
+
+ba_aa_plot = (plot_list_AvAcc[[1]] | plot_list_AvAcc[[2]] | plot_list_AvAcc[[3]]) /
+  (plot_list_AvAcc[[4]] |plot_list_AvAcc[[5]] | plot_list_AvAcc[[6]]) / 
+  (plot_list_AvAcc[[7]] | plot_list_AvAcc[[8]] | plot_list_AvAcc[[9]]) /
+  (plot_list_AvAcc[[10]] | plot_list_AvAcc[[10]] | plot_list_AvAcc[[10]]) +
+  plot_annotation(
+    title = "Average Acceleration",
+    tag_levels = "A"
+    )
+
+# ggsave(
+#   "plots/fig4.svg",
+#   plot = ba_aa_plot,
+#   width = 6,
+#   height = 9,
+#   units = "in",
+#   dpi = 300
+# )
+
+```
+
+```{r, fig.width=7, fig.height=21}
+
+plot_list_IG = NULL
+stats_list_IG = NULL
+
+for (i in 1:10){
+  vec1 = data_IG |> pull(
+    !!sym(paste0("centiles_", ESM_combn[1,i], "_IG"))
+  )
+  vec2 = data_IG |> pull(
+    !!sym(paste0("centiles_", ESM_combn[2,i], "_IG"))
+  )
+  stats_list_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = blandr.statistics(vec1, vec2)
+  
+  plot_list_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = ba_plot_func(stats_list_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]])
+}
+
+
+ba_ig_plot = (plot_list_IG[[1]] | plot_list_IG[[2]] | plot_list_IG[[3]]) /
+  (plot_list_IG[[4]] | plot_list_IG[[5]] | plot_list_IG[[6]]) / 
+  (plot_list_IG[[7]] | plot_list_IG[[8]] | plot_list_IG[[9]]) /
+  (plot_list_IG[[10]] | plot_list_IG[[10]] | plot_list_IG[[10]]) +
+  plot_annotation(
+    title = "Pairwise centile agreement, IG",
+    tag_levels = "A"
+    )
+
+# ggsave(
+#   "plots/fig5.svg",
+#   plot = ba_ig_plot,
+#   width = 6,
+#   height = 9,
+#   units = "in",
+#   dpi = 300
+# )
+```
+
+
+#### Confusion matrices
+##### pairwise
+```{r, fig.width=20, fig.height=15}
+plot_list_conf_mat_AvAcc = NULL
+stats_list_conf_mat_AvAcc = NULL
+ESM_combn = combn(c("ENMO", "MAD", "LFENMO", "NeishabouriCount_vm", "ENMOa"), 2)
+PAm = "AvAcc"
+
+for (i in 1:10){
+  vec1 = data_AvAcc |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[1,i], "_AvAcc"))
+  )
+  vec2 = data_AvAcc |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[2,i], "_AvAcc"))
+  )
+  stats_list_conf_mat_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = confusion_matrix(
+    targets = vec1,
+    predictions = vec2
+    )
+  
+  plot_list_conf_mat_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = plot_confusion_matrix(
+    stats_list_conf_mat_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]],
+    add_sums = TRUE,
+    place_x_axis_above = FALSE,
+    add_normalized = FALSE,
+    add_col_percentages = FALSE,
+    add_row_percentages = FALSE
+    ) +
+    labs(
+      x = ESM_combn[1,i],
+      y = ESM_combn[2,i]
+      )
+}
+
+
+cm_aa_plot = (plot_list_conf_mat_AvAcc[[1]] | plot_list_conf_mat_AvAcc[[2]] | plot_list_conf_mat_AvAcc[[3]]) /
+  (plot_list_conf_mat_AvAcc[[4]] | plot_list_conf_mat_AvAcc[[5]] | plot_list_conf_mat_AvAcc[[6]]) / 
+  (plot_list_conf_mat_AvAcc[[7]] | plot_list_conf_mat_AvAcc[[8]] | plot_list_conf_mat_AvAcc[[9]]) /
+  (plot_list_conf_mat_AvAcc[[10]] | plot_list_conf_mat_AvAcc[[10]] | plot_list_conf_mat_AvAcc[[10]]) +
+  plot_annotation(title = "Pairwise quintile agreement, AvAcc")
+
+# ggsave(
+#   "plots/fig6.svg",
+#   plot = cm_aa_plot,
+#   width = 9,
+#   height = 13.5,
+#   units = "in",
+#   dpi = 300
+# )
+```
+
+```{r}
+
+for (name in names(stats_list_conf_mat_AvAcc)){
+  same = stats_list_conf_mat_AvAcc[[name]][["Confusion Matrix"]][[1]][c(1,7,13,19,25), "N"] |> 
+    summarise(sum = sum(N), perc = sum(N)/3520*100)
+  byone = stats_list_conf_mat_AvAcc[[name]][["Confusion Matrix"]][[1]][c(1,2,6,7,8,12,13,14,18,19,20,24,25), "N"] |> 
+    summarise(sum = sum(N), perc = sum(N)/3520*100)
+  print(name)
+  print(same)
+  print(byone)
+}
+
+```
+
+
+```{r, fig.width=20, fig.height=15}
+plot_list_conf_mat_IG = NULL
+stats_list_conf_mat_IG = NULL
+ESM_combn = combn(c("ENMO", "MAD", "LFENMO", "NeishabouriCount_vm", "ENMOa"), 2)
+PAm = "IG"
+
+for (i in 1:10){
+  vec1 = data_IG |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[1,i], "_IG"))
+  )
+  vec2 = data_IG |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[2,i], "_IG"))
+  )
+  stats_list_conf_mat_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = confusion_matrix(
+    targets = vec1,
+    predictions = vec2
+    )
+  
+  plot_list_conf_mat_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = plot_confusion_matrix(
+    stats_list_conf_mat_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]],
+    add_sums = TRUE,
+    place_x_axis_above = FALSE,
+    add_normalized = FALSE,
+    add_col_percentages = FALSE,
+    add_row_percentages = FALSE
+    ) +
+    labs(
+      x = ESM_combn[1,i],
+      y = ESM_combn[2,i]
+      )
+}
+
+
+cm_ig_plot =(plot_list_conf_mat_IG[[1]] | plot_list_conf_mat_IG[[2]] | plot_list_conf_mat_IG[[3]]) /
+  (plot_list_conf_mat_IG[[4]] | plot_list_conf_mat_IG[[5]] | plot_list_conf_mat_IG[[6]]) /
+  (plot_list_conf_mat_IG[[7]] | plot_list_conf_mat_IG[[8]] | plot_list_conf_mat_IG[[9]]) /
+  (plot_list_conf_mat_IG[[10]] | plot_list_conf_mat_IG[[10]] | plot_list_conf_mat_IG[[10]]) +
+  plot_annotation(title = "Pairwise quintile agreement, IG")
+
+
+# ggsave(
+#   "plots/fig7.svg",
+#   plot = cm_ig_plot,
+#   width = 9,
+#   height = 13.5,
+#   units = "in",
+#   dpi = 300
+# )
+```
+
+
+```{r}
+
+for (name in names(stats_list_conf_mat_IG)){
+  same = stats_list_conf_mat_IG[[name]][["Confusion Matrix"]][[1]][c(1,7,13,19,25), "N"] |> 
+    summarise(sum = sum(N), perc = sum(N)/3520*100)
+  byone = stats_list_conf_mat_IG[[name]][["Confusion Matrix"]][[1]][c(1,2,6,7,8,12,13,14,18,19,20,24,25), "N"] |> 
+    summarise(sum = sum(N), perc = sum(N)/3520*100)
+  print(name)
+  print(same)
+  print(byone)
+}
+
+```
+
+
+#### wKappa
+```{r, fig.width=20, fig.height=15}
+stats_list_kappa_AvAcc = NULL
+ESM_combn = combn(c("ENMO", "MAD", "LFENMO", "NeishabouriCount_vm", "ENMOa"), 2)
+PAm = "AvAcc"
+
+for (i in 1:10){
+  vec1 = data_AvAcc |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[1,i], "_AvAcc"))
+  )
+  vec2 = data_AvAcc |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[2,i], "_AvAcc"))
+  )
+  stats_list_kappa_AvAcc[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = kappa2(data.frame(vec1, vec2), weight = "squared")$value
+}
+
+stats_list_kappa_IG = NULL
+PAm = "IG"
+
+for (i in 1:10){
+  vec1 = data_IG |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[1,i], "_IG"))
+  )
+  vec2 = data_IG |> pull(
+    !!sym(paste0("quints_centiles_", ESM_combn[2,i], "_IG"))
+  )
+  stats_list_kappa_IG[[paste0(ESM_combn[1,i], "_", ESM_combn[2,i])]] = kappa2(data.frame(vec1, vec2), weight = "squared")$value
+}
+
+stats_list_kappa_AvAcc
+stats_list_kappa_IG
+```
+
+
+
+#### raw IG corrs
+```{r}
+
+cor_IG_raw = centiles_dataframe |> 
+  select(contains("_ig_gradient_")) |> 
+  cor(use = "pairwise.complete.obs")
+
+corplot_IG_raw = ggcorrplot(
+  cor_IG_raw,
+  # method = "color",
+  ggtheme = theme_classic(),
+  title = "A",
+  # outline = TRUE,
+  # addgrid.col = "grey",
+  type = "lower",
+  show.diag = TRUE,
+  colors = c("firebrick3", "white", "royalblue4"),
+  lab = TRUE,
+  tl.cex = 12,
+  # tl.col = "black"
+) 
+
+corplot_IG_raw
+
+```
+
+

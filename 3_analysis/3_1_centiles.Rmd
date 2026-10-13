@@ -1,0 +1,189 @@
+---
+title: "3_3_centiles"
+output: html_document
+date: "2025-12-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(gamlss)
+library(gamlss.ggplots)
+library(gamlssTools)
+library(ggplot2)
+library(patchwork)
+```
+
+```{r}
+rm(list = ls())
+source("2_wrangling/2_1_data_wrangling.R")
+```
+
+#### select gender, age range, winsorise
+```{r}
+ESM = "NeishabouriCount_vm"
+gender = 2
+aa_ig = "IG" # "AvAcc" or "IG"
+```
+
+```{r}
+
+ESM_aa = ESM
+ESM_ig = paste0("ig_gradient_", ESM)
+
+
+gender_df = all_df_participant |>
+  filter(gender == !!gender) |>
+  rename(
+    pa_measure = if_else(
+      aa_ig == "IG",
+      paste0("M14_", ESM_ig, "_mg_0-24hr"),
+      paste0("M14_", ESM_aa, "_mg_0-24hr")
+    )
+  )
+
+    
+```
+
+#### inspect
+```{r, fig.width=8, fig.height=4}
+# histogram
+histogram = gender_df |>
+  pull(pa_measure) |>
+  y_hist()
+
+# scatter over age
+scatter = gender_df |>
+  ggplot() +
+  geom_point(aes(age, pa_measure), alpha = .2)
+
+histogram + scatter + plot_annotation(
+  caption = paste(ESM, aa_ig, gender) 
+)
+```
+
+##### create base model and run chooseDist
+```{r, fig.width=4, fig.height=4}
+# base model
+m1 = gamlss(
+  pa_measure ~ pb(age),
+  sigma.formula = ~ pb(age),
+  nu.formula = ~ pb(age),
+  tau.formula = ~ pb(age),
+  family=NO,
+  data=gender_df,
+  control = gamlss.control(n.cyc = 50)
+)
+
+# test distributions
+f_type = if_else(aa_ig == "AvAcc", "realplus", "realline")
+
+t1 = chooseDist(m1, type = f_type, parallel = "snow", ncpus = detectCores()-1)
+
+if (aa_ig == "IG"){t1 = t1[-2,]} #GU family errors
+
+model_GAIC_lollipop(t1, which = 1) + plot_annotation(
+  caption = paste(ESM, aa_ig, gender) 
+)
+
+```
+
+#### update model distribution, run diagnostics
+```{r, warning = FALSE, message = FALSE, fig.width=8, fig.height=8}
+
+best_family = names(getOrder(t1, 1)[1])
+
+# update based on best AIC (can do chi-square or BIC and more)
+m1.update = update(
+  m1,
+  family = best_family,
+  control = gamlss.control(n.cyc = 100)
+  )
+
+# plot fitted means versus scatter
+fitted_df = data.frame(gender_df, fitted_mean = fitted(m1.update))
+fitted_mean = ggplot(fitted_df) +
+  geom_point(aes(age, pa_measure), alpha = .2) +
+  geom_line(aes(age, fitted_mean), col = "red", linewidth = 1.5) +
+  theme_classic() +
+  ggtitle("Fitted mean for model m1.update")
+
+# diagnostics
+qqplot = resid_qqplot(m1.update) + theme_classic()
+wormplot = resid_wp(m1.update) + theme_classic()
+bucketplot = moment_bucket(m1.update) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  ggtitle("Bucket-plot for model m1.update")
+
+(fitted_mean + qqplot) / (bucketplot + wormplot) + plot_annotation(
+  caption = paste(ESM, aa_ig, gender) 
+)
+
+```
+
+#### fitted centiles
+```{r, fig.width=8, fig.height=6}
+
+fitted_centiles_legend(m1.update, cent = c(97, 90, 75, 50, 25, 10, 3)) +
+  theme_classic() + plot_annotation(
+  caption = paste(ESM, aa_ig, gender) 
+)
+
+```
+
+```{r}
+og_centiles_zscores = pred_og_centile(
+  m1.update,
+  gender_df,
+  get.std.scores = TRUE
+  )
+
+og_df = data.frame(
+  gender_df,
+  centiles = round(og_centiles_zscores$centile * 100, 1),
+  z_scores = round(og_centiles_zscores$std_score, 2)
+  ) |>
+  rename(
+    !!sym(paste("centiles", ESM, aa_ig, sep = "_")) := centiles,
+    !!sym(paste("z_scores", ESM, aa_ig, sep = "_")) := z_scores
+  )
+
+if (aa_ig == "IG"){
+  og_df = og_df |> 
+    rename(!!sym(paste0("M14_", ESM_ig, "_mg_0-24hr")) := pa_measure)
+} else {
+  og_df = og_df |> 
+    rename(!!sym(paste0("M14_", ESM_aa, "_mg_0-24hr")) := pa_measure)
+}
+
+write_rds(og_df, paste0("centile_dataframes/", ESM, aa_ig, gender, ".rds"))
+```
+
+
+#### centiles for plotting
+```{r}
+
+sim_df = sim_data(gender_df, "age", gamlssModel = m1.update)
+
+centiles_df = centile_predict(
+  m1.update,
+  sim_df,
+  "age",
+  desiredCentiles = c(0.03, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97)
+)
+
+write_rds(centiles_df, paste0("plotting_dataframes/", ESM, aa_ig, gender, ".rds"))
+
+ggplot(centiles_df$fanCentiles_df) +
+  geom_line(aes(age, cent_0.03), colour = "blue") +
+  geom_line(aes(age, cent_0.1), colour = "cyan") +
+  geom_line(aes(age, cent_0.25), colour = "green") +
+  geom_line(aes(age, cent_0.5), colour = "yellow") +
+  geom_line(aes(age, cent_0.75), colour = "orange") +
+  geom_line(aes(age, cent_0.9), colour = "red") +
+  geom_line(aes(age, cent_0.97), colour = "violet")
+
+```
